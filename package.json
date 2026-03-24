@@ -29,6 +29,7 @@
   "scripts": {
     "test": "NODE_OPTIONS=--experimental-vm-modules jest",
     "build": "tsc --pretty",
+    "prepare": "npm run build",
     "watch": "npm run build -- --watch",
     "watch:test": "NODE_OPTIONS=--experimental-vm-modules jest --watch",
     "release:plugin": "npm run test && npm run build && npm publish",
