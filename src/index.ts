@@ -9,6 +9,7 @@ export const parsers = {
   html: wrapParser(prettierParsers.html),
   vue: wrapParser(prettierParsers.vue),
   angular: wrapParser(prettierParsers.angular),
+  blade: wrapBladeParser(),
 };
 
 export const options: {
@@ -47,6 +48,26 @@ function wrapParser(parser: Parser<any>): Parser<any> {
   return {
     ...parser,
     parse: transformPostParse(parser.parse),
+  };
+}
+
+function wrapBladeParser(): Parser<any> {
+  let realParser: Parser<any> | null = null;
+  return {
+    astFormat: "blade-ast",
+    locStart: (node) => realParser?.locStart(node) ?? 0,
+    locEnd: (node) => realParser?.locEnd(node) ?? 0,
+    parse: (text, options) => {
+      const opts = options as ParserOptions & PrettierPluginOrganizeAttributesParserOptions;
+      realParser = (opts.plugins as any[])?.find(
+        (p) => p?.parsers?.blade && (p.printers?.blade || p.printers?.["blade-ast"])
+      )?.parsers?.blade ?? null;
+      if (!realParser) return {};
+      const ast = realParser.parse(text, opts);
+      const sort: OrganizeOptionsSort = opts.attributeSort === "NONE" ? false : opts.attributeSort;
+      transformBladeNode(ast, [...opts.attributeGroups], sort, opts.attributeIgnoreCase);
+      return ast;
+    },
   };
 }
 
@@ -104,6 +125,37 @@ function transformNode(
   node.children?.forEach((child) =>
     transformNode(child, groups, sort, ignoreCase)
   );
+}
+
+function transformBladeNode(
+  node: any,
+  groups: string[],
+  sort: OrganizeOptionsSort,
+  ignoreCase = true,
+  seen = new WeakSet<object>()
+): void {
+  if (!node || typeof node !== "object" || seen.has(node)) return;
+  seen.add(node);
+
+  if (node.attrs?.length && node.attrs[0].source) {
+    node.attrs = miniorganize(node.attrs, {
+      presets: PRESETS,
+      ignoreCase,
+      groups,
+      sort,
+      map: (attr: any) =>
+        attr.source.slice(attr.start, attr.end).split("=")[0].trim(),
+    }).flat;
+  }
+
+  for (const key of Object.keys(node)) {
+    if (key === "parent") continue;
+    const child = node[key];
+    if (Array.isArray(child))
+      child.forEach((c) => transformBladeNode(c, groups, sort, ignoreCase, seen));
+    else if (child && typeof child === "object")
+      transformBladeNode(child, groups, sort, ignoreCase, seen);
+  }
 }
 
 export type PrettierPluginOrganizeAttributesParserOptions = {
